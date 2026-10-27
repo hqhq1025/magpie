@@ -4129,7 +4129,11 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 	body = toolOneOfAsAnyOf(p, to, body)
 	body = kimiToolEnumTypes(p, to, body)
 	body = kimiToolRefTypes(p, to, body)
-	body = geminiToolTypes(body)
+	// Copilot accepts an untyped anyOf but rejects the same schema with
+	// type: object added (Codex's fork_thread environment, 2026-10-27).
+	if p.Account == nil || p.Account.Agent != "copilot" {
+		body = geminiToolTypes(body)
+	}
 	body = kimiLockedSampling(p, to, body)
 	body = clinePin(p, to, body)
 	body = codexImagesFit(p, to, body)
