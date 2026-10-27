@@ -4129,8 +4129,9 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 	body = toolOneOfAsAnyOf(p, to, body)
 	body = kimiToolEnumTypes(p, to, body)
 	body = kimiToolRefTypes(p, to, body)
-	// Copilot accepts an untyped anyOf but rejects the same schema with
-	// type: object added (Codex's fork_thread environment, 2026-10-27).
+	body = copilotGeminiToolUnions(p, body)
+	// Copilot uses the union conversion above; Vertex's inferred types
+	// can make Copilot reject otherwise accepted tool schemas.
 	if p.Account == nil || p.Account.Agent != "copilot" {
 		body = geminiToolTypes(body)
 	}

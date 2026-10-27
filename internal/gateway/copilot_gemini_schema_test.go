@@ -11,12 +11,13 @@ import (
 	"github.com/yetone/magpie/internal/provider"
 )
 
-// Copilot accepts Codex's fork_thread environment as an untyped anyOf,
-// but answers invalid_request_body when magpie adds type: object to it.
+// With tools enabled, Copilot Gemini rejects Codex's disjoint anyOf.
+// oneOf preserves the arguments because the required type values differ.
 // The earlier Azure turn includes a custom tool call and its output.
 func TestCopilotGeminiKeepsCodexToolUnions(t *testing.T) {
 	const body = `{
 		"model":"copilot/gemini-4-argon","stream":false,"max_output_tokens":32,
+		"tool_choice":"auto",
 		"tools":[
 			{"type":"custom","name":"apply_patch","description":"Apply a patch."},
 			{"type":"namespace","name":"mcp__codex_app","tools":[
@@ -38,11 +39,12 @@ func TestCopilotGeminiKeepsCodexToolUnions(t *testing.T) {
 	for _, c := range []struct {
 		name, model, account string
 		typed                bool
+		union                string
 	}{
-		{"Copilot Gemini", "gemini-4-argon", "copilot", false},
-		{"Copilot GPT", "gpt-6-astra", "copilot", false},
-		{"Gemini relay", "gemini-4-argon", "", true},
-		{"GPT relay", "gpt-6-astra", "", false},
+		{"Copilot Gemini", "gemini-4-argon", "copilot", false, "oneOf"},
+		{"Copilot GPT", "gpt-6-astra", "copilot", false, "anyOf"},
+		{"Gemini relay", "gemini-4-argon", "", true, "anyOf"},
+		{"GPT relay", "gpt-6-astra", "", false, "anyOf"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fresh(t)
@@ -68,7 +70,8 @@ func TestCopilotGeminiKeepsCodexToolUnions(t *testing.T) {
 						continue
 					}
 					env := tool.Get("function.parameters.properties.environment")
-					if env.Get("type").Exists() != c.typed {
+					if env.Get("type").Exists() != c.typed ||
+						len(env.Get(c.union).Array()) != 2 {
 						return &http.Response{StatusCode: 400, Header: http.Header{"Content-Type": {"application/json"}},
 							Body: io.NopCloser(strings.NewReader(`{"error":{"code":"invalid_request_body","message":"invalid request body"}}`))}, nil
 					}
@@ -91,8 +94,12 @@ func TestCopilotGeminiKeepsCodexToolUnions(t *testing.T) {
 				t.Fatalf("custom or namespaced tool lost: %s", gjson.GetBytes(sent, "tools"))
 			}
 			env := tools[1].Get("function.parameters.properties.environment")
-			if len(env.Get("anyOf").Array()) != 2 || env.Get("oneOf").Exists() {
+			if len(env.Get(c.union).Array()) != 2 ||
+				len(env.Get("anyOf").Array())+len(env.Get("oneOf").Array()) != 2 {
 				t.Fatalf("union meaning changed: %s", env)
+			}
+			if gjson.GetBytes(sent, "tool_choice").String() != "auto" {
+				t.Fatalf("tools disabled: %s", gjson.GetBytes(sent, "tool_choice"))
 			}
 			messages := gjson.GetBytes(sent, "messages").Array()
 			if len(messages) != 4 || messages[1].Get("tool_calls.0.function.name").String() != "apply_patch" ||
