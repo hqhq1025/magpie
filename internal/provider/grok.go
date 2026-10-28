@@ -321,6 +321,11 @@ func grokAgentMessage(it any) (map[string]any, bool) {
 }
 
 // liteNamespace is the namespace Codex's Responses Lite groups its own
+// AgentMessageAsUser is grokAgentMessage for any Responses upstream that
+// does not know Codex's agent_message item.
+func AgentMessageAsUser(it any) (map[string]any, bool) { return grokAgentMessage(it) }
+
+// liteNamespace is the namespace Codex's Responses Lite groups its own
 // functions in, which Codex reads as none at all.
 const liteNamespace = "functions"
 

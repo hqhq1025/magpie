@@ -43,6 +43,44 @@ func checkAgentMessageSent(t *testing.T, q map[string]any) {
 }
 
 // A Codex subagent's plain agent_message reaches a Grok subscription as the
+// A third-party Responses API, such as DeepSeek's, gets a subagent's plain
+// task as the user's message. DeepSeek dropped the unknown agent_message
+// without an error, and the subagent answered with no task to do. Azure
+// OpenAI reads the item (it asks for its author), so it gets it as it came.
+func TestThirdPartyResponsesGetAgentMessageAsUser(t *testing.T) {
+	for _, azure := range []bool{false, true} {
+		f := &fake{t: t, reply: responsesUncounted}
+		up := setup(t, provider.Responses, f)
+		if azure {
+			p := provider.Provider{ID: "fake", Name: "Fake", Key: "k", Models: []string{"m1"}, Preset: provider.AzurePreset, Responses: up.URL + "/openai/v1"}
+			if err := provider.Save(p); err != nil {
+				t.Fatal(err)
+			}
+		}
+		code, reply := post(t, "/v1/responses", `{"model":"fake/m1","stream":true,`+agentMessageTurn+`}`)
+		if code != 200 {
+			t.Fatalf("azure %v: %d %s", azure, code, reply)
+		}
+		sent := string(f.got)
+		if !strings.Contains(sent, `found the cause`) {
+			t.Fatalf("azure %v: the subagent's message was lost: %s", azure, sent)
+		}
+		if azure {
+			if !strings.Contains(sent, `"type":"agent_message"`) || !strings.Contains(sent, `"author":"/root/research"`) {
+				t.Fatalf("Azure was not sent the agent_message as it came: %s", sent)
+			}
+			continue
+		}
+		if strings.Contains(sent, `"agent_message"`) {
+			t.Fatalf("the upstream was sent an agent_message: %s", sent)
+		}
+		if !strings.Contains(sent, `From /root/research to /root`) {
+			t.Fatalf("the sender and recipient were not named: %s", sent)
+		}
+	}
+}
+
+// A Codex subagent's plain agent_message reaches a Grok subscription as the
 // user's message, which its backend refused with 422 "unknown item type
 // \"agent_message\"" (plugins#61).
 func TestGrokGetsAgentMessageAsUser(t *testing.T) {
