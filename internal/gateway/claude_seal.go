@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 
 	"github.com/tidwall/gjson"
 	"github.com/yetone/magpie/internal/claudeseal"
@@ -92,4 +93,24 @@ func withoutClaudeSeals(body []byte) []byte {
 		return body
 	}
 	return b
+}
+
+// dropClaudeThinkingBefore is msgs with Claude thinking removed from the
+// assistant messages at its end: the turn so far, before a web search whose
+// tool call and result are not replayed. A message left empty goes.
+func dropClaudeThinkingBefore(msgs []Message) []Message {
+	i := len(msgs)
+	for i > 0 && msgs[i-1].Role == "assistant" {
+		i--
+	}
+	out := msgs[:i]
+	for _, m := range msgs[i:] {
+		m.Parts = slices.DeleteFunc(slices.Clone(m.Parts), func(p Part) bool {
+			return p.Kind == Thinking && (p.SignedBy == sealAnthropic || p.sealedBy(sealAnthropic))
+		})
+		if len(m.Parts) > 0 {
+			out = append(out, m)
+		}
+	}
+	return out
 }

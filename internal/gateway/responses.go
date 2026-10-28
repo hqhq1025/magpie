@@ -408,6 +408,12 @@ func readResponses(body []byte, facts bool) (*Request, error) {
 			case it.Type == "tool_search_output":
 				found = append(found, it.Tools...)
 				r.Messages = append(r.Messages, Message{Role: "user", Parts: []Part{{Kind: ToolResult, CallID: it.CallID, Text: searchFound(it.Tools)}}})
+			case it.Type == "web_search_call":
+				// The search's tool call and result are not carried back, so
+				// Claude thinking signed before it would replay merged into
+				// the message written after it, which Anthropic refuses as
+				// modified thinking. The thinking after the search is kept.
+				r.Messages = dropClaudeThinkingBefore(r.Messages)
 			case (it.Type == "function_call_output" || it.Type == "custom_tool_call_output") && facts:
 				r.Messages = append(r.Messages, Message{Role: "user", Parts: []Part{{Kind: ToolResult, CallID: it.CallID}}})
 			case it.Type == "function_call_output" || it.Type == "custom_tool_call_output":
