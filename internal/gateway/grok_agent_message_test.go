@@ -43,6 +43,29 @@ func checkAgentMessageSent(t *testing.T, q map[string]any) {
 }
 
 // A Codex subagent's plain agent_message reaches a Grok subscription as the
+// A third-party Responses API, such as DeepSeek's, gets a subagent's plain
+// task as the user's message. DeepSeek dropped the unknown agent_message
+// without an error, and the subagent answered with no task to do.
+func TestThirdPartyResponsesGetAgentMessageAsUser(t *testing.T) {
+	f := &fake{t: t, reply: responsesUncounted}
+	setup(t, provider.Responses, f)
+	code, reply := post(t, "/v1/responses", `{"model":"fake/m1","stream":true,`+agentMessageTurn+`}`)
+	if code != 200 {
+		t.Fatalf("%d %s", code, reply)
+	}
+	var q map[string]any
+	if err := json.Unmarshal(f.got, &q); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(f.got), `"agent_message"`) {
+		t.Fatalf("the upstream was sent an agent_message: %s", f.got)
+	}
+	if !strings.Contains(string(f.got), `From /root/research to /root`) || !strings.Contains(string(f.got), `found the cause`) {
+		t.Fatalf("the subagent's message was lost: %s", f.got)
+	}
+}
+
+// A Codex subagent's plain agent_message reaches a Grok subscription as the
 // user's message, which its backend refused with 422 "unknown item type
 // \"agent_message\"" (plugins#61).
 func TestGrokGetsAgentMessageAsUser(t *testing.T) {

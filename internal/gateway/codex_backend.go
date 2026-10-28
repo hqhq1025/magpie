@@ -2818,6 +2818,47 @@ func forVendorChanges(body []byte) bool {
 
 func userMessage(text string) map[string]any { return codexsummary.UserMessage(text) }
 
+// keepsAgentMessages says p's Responses API reads Codex's agent_message
+// item: OpenAI's API, the ChatGPT backend, Azure OpenAI, Copilot and
+// another magpie. A compatible API elsewhere can drop the unknown item
+// without an error. DeepSeek did, so a subagent on it got AGENTS.md but
+// not its task.
+func keepsAgentMessages(p provider.Provider) bool {
+	return p.Account != nil && p.Account.Agent == "codex" ||
+		strings.HasSuffix(p.Host(), "openai.com") ||
+		p.IsAzure() || p.ID == "copilot" || p.IsRemoteMagpie()
+}
+
+// agentMessagesAsUser is body with each plain agent_message sent as the
+// user's message. A sealed one stays as it came.
+func agentMessagesAsUser(body []byte) []byte {
+	if !bytes.Contains(body, []byte(`"agent_message"`)) {
+		return body
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var q map[string]any
+	if dec.Decode(&q) != nil || q == nil {
+		return body
+	}
+	input, _ := q["input"].([]any)
+	changed := false
+	for i, it := range input {
+		if msg, ok := provider.AgentMessageAsUser(it); ok {
+			input[i] = msg
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	nb, err := marshalPlain(q)
+	if err != nil {
+		return body
+	}
+	return nb
+}
+
 // codexCompact compacts a conversation held by a magpie model: the model
 // summarises it, and the summary goes back to Codex as the compaction item
 // the backend would have made, marked as magpie's so magpie reads it back
