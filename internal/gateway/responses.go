@@ -352,7 +352,12 @@ func readResponses(body []byte, facts bool) (*Request, error) {
 		// first; a Claude subscription's waiting run is found by it) (#502)
 		replied := false
 		var rawItems []json.RawMessage // decoded only for native standalone outputs and sealed reasoning
+		// lastClaudeThinking is the message read from the item just before,
+		// when that item was Claude's sealed thinking; -1 otherwise
+		lastClaudeThinking := -1
 		for i, it := range items {
+			prevClaudeThinking := lastClaudeThinking
+			lastClaudeThinking = -1
 			if it.Role == "assistant" || strings.HasPrefix(it.Type, "function_call") || strings.HasPrefix(it.Type, "custom_tool_call") || strings.HasPrefix(it.Type, "tool_search") || it.Type == "reasoning" {
 				replied = true
 			}
@@ -452,6 +457,14 @@ func readResponses(body []byte, facts bool) (*Request, error) {
 					// (withoutClaudeSeals). One that can't be read is its
 					// summary, as before.
 					part = claudePart(block, part)
+					// Two of Claude's blocks with nothing between them came
+					// from one response that had a server tool (a web search)
+					// between them, which Codex doesn't keep. Replayed side by
+					// side they are refused as modified thinking; the later
+					// one alone is taken, as after a web_search_call.
+					if part.SignedBy == sealAnthropic && prevClaudeThinking == len(r.Messages)-1 && prevClaudeThinking >= 0 {
+						r.Messages = r.Messages[:prevClaudeThinking]
+					}
 				} else if it.EncryptedContent != "" {
 					// sealed: the item goes back to a Responses API as it
 					// came, id, summary and all (#1445)
@@ -464,6 +477,9 @@ func readResponses(body []byte, facts bool) (*Request, error) {
 				}
 				if part.Text != "" || part.Sealed != nil || part.Signature != "" {
 					r.Messages = append(r.Messages, Message{Role: "assistant", Parts: []Part{part}})
+					if part.SignedBy == sealAnthropic {
+						lastClaudeThinking = len(r.Messages) - 1
+					}
 				}
 			}
 		}
